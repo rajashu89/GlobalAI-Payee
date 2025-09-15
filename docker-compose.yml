@@ -1,0 +1,124 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: globalai_payee
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - globalai-network
+
+  # MongoDB for logs
+  mongodb:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+      MONGO_INITDB_DATABASE: globalai_logs
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - globalai-network
+
+  # Redis for caching
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - globalai-network
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/globalai_payee
+      MONGODB_URI: mongodb://admin:admin123@mongodb:27017/globalai_logs?authSource=admin
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your-super-secret-jwt-key-change-in-production
+      ENCRYPTION_KEY: your-32-character-encryption-key-here
+      BINANCE_API_KEY: your-binance-api-key
+      BINANCE_SECRET_KEY: your-binance-secret-key
+      GOOGLE_MAPS_API_KEY: your-google-maps-api-key
+      OPENEXCHANGE_API_KEY: your-openexchange-api-key
+    depends_on:
+      - postgres
+      - mongodb
+      - redis
+    networks:
+      - globalai-network
+
+  # AI Service
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      PYTHONPATH: /app
+      MODEL_PATH: /app/models
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/globalai_payee
+    depends_on:
+      - postgres
+    networks:
+      - globalai-network
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXT_PUBLIC_AI_SERVICE_URL: http://localhost:8001
+      NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: your-google-maps-api-key
+    depends_on:
+      - backend
+      - ai-service
+    networks:
+      - globalai-network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - frontend
+      - backend
+      - ai-service
+    networks:
+      - globalai-network
+
+volumes:
+  postgres_data:
+  mongodb_data:
+  redis_data:
+
+networks:
+  globalai-network:
+    driver: bridge
